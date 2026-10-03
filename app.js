@@ -95,6 +95,7 @@
     book: [["path", { d: "M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" }], ["path", { d: "M8 7h6M8 11h8" }]],
     message: [["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" }]],
     arrowUp: [["path", { d: "M12 19V5M5 12l7-7 7 7" }]],
+    pencil: [["path", { d: "M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z" }]],
     shield: [["path", { d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" }]],
   };
   function icon(name, size = 18, stroke = 2.2) {
@@ -194,6 +195,8 @@
     [/^#\/campaigns$/, "campaigns", pageCampaigns],
     [/^#\/campaigns\/new$/, "campaigns", pageNewCampaign],
     [/^#\/campaign\/(\d+)$/, "campaigns", pageCampaign],
+    [/^#\/campaign\/(\d+)\/edit$/, "campaigns", pageEditCampaign],
+    [/^#\/links\/(\d+)\/edit$/, "links", pageEditLink],
     [/^#\/links$/, "links", pageLinks],
     [/^#\/links\/new(?:\?.*)?$/, "links", pageNewLink],
     [/^#\/channels$/, "channels", pageChannels],
@@ -324,7 +327,8 @@
               132, 14, pct(f.conversion_rate), "nel VIP"),
         h("div", { class: "legend-stack" },
           h("div", {}, h("div", { class: "lbl" }, h("span", { class: "dot", style: "background:var(--pink)" }), "Entrati nel VIP"),
-            h("div", { class: "val" }, fmt(f.vip), h("small", {}, ` / ${fmt(f.acquired)}`))),
+            h("div", { class: "val" }, fmt(f.vip), h("small", {}, ` / ${fmt(f.acquired)}`)),
+            h("div", { class: "small muted", style: "margin-top:2px" }, `${fmt(f.vip_present || 0)} ancora nel VIP`)),
           h("div", {}, h("div", { class: "lbl" }, h("span", { class: "dot", style: "background:var(--blue)" }), "Ancora nel principale"),
             h("div", { class: "val" }, fmt(f.present), h("small", {}, ` · ${f.acquired ? Math.round(presentPct) : 0}%`))))),
       h("div", { class: "funnel" },
@@ -554,7 +558,8 @@
           c.status === "paused" ? h("span", { class: "pill orange" }, "In pausa") : id ? h("span", { class: "pill green" }, "Attiva") : null,
           tags.map((t) => h("span", { class: "pill" }, t)))));
 
-    const actions = id === 0 ? null : h("div", { class: "row", style: "gap:8px;margin-bottom:14px" },
+    const actions = id === 0 ? null : h("div", { class: "row wrap", style: "gap:8px;margin-bottom:14px" },
+      h("a", { class: "btn tinted small", href: `#/campaign/${id}/edit` }, "Modifica"),
       h("button", { class: "btn tinted small", onclick: () => setStatus(c.status === "paused" ? "active" : "paused") },
         c.status === "paused" ? "Riattiva" : "Metti in pausa"),
       h("button", { class: "btn destructive small", onclick: async () => {
@@ -604,6 +609,7 @@
           l.expires_at ? h("span", { class: "pill" }, `scade ${fmtDate(l.expires_at)}`) : null,
           l.member_limit ? h("span", { class: "pill" }, `max ${fmt(l.member_limit)}`) : null)),
       h("div", { class: "row", style: "gap:6px;flex:none" },
+        h("a", { class: "btn tinted icon", "aria-label": "Modifica o sposta link", href: `#/links/${l.id}/edit` }, icon("pencil", 15)),
         h("button", { class: "btn tinted icon", "aria-label": "Copia link", onclick: () => copy(l.telegram_invite_link) }, icon("copy", 16)),
         inactive ? null : h("button", { class: "btn destructive icon", "aria-label": "Revoca link", onclick: () => revoke(l) }, icon("close", 16, 2.6))));
   }
@@ -649,7 +655,8 @@
               u.username && label !== `@${u.username}` ? `@${u.username} · ` : "", `entrato ${fmtDate(u.joined_at)}`)),
           h("div", { class: "row", style: "gap:6px;flex:none" },
             u.in_main ? null : h("span", { class: "pill red" }, "uscito"),
-            u.vip_at ? h("span", { class: "pill pink" }, icon("crown", 12, 2.4), fmtDate(u.vip_at, false)) : null)));
+            u.vip_at && !u.in_vip ? h("span", { class: "pill" }, icon("crown", 12, 2.4), "uscito dal VIP") : null,
+            u.vip_at && u.in_vip ? h("span", { class: "pill pink" }, icon("crown", 12, 2.4), fmtDate(u.vip_at, false)) : null)));
       }
       state.offset += r.users.length;
       counter.textContent = `${fmt(r.count)} utenti${state.offset < r.count ? ` · mostrati ${fmt(state.offset)}` : ""}`;
@@ -823,6 +830,71 @@
       h("p", { class: "group-note" }, "Possono vedere i dati e creare campagne e link. Solo il proprietario gestisce questa lista."),
       h("h2", {}, "Aggiungi"),
       form);
+  }
+
+  async function pageEditCampaign(id) {
+    const { campaign: c } = await api(`/api/campaigns/${id}`);
+    const field = (label, key, ph) => {
+      const input = h("input", { type: "text", value: c[key] || "", placeholder: ph, maxlength: "120" });
+      return [input, h("label", { class: "form-cell" }, h("span", {}, label), input)];
+    };
+    const [name, nameCell] = field("Nome", "name", "Nome campagna");
+    const [source, sourceCell] = field("Source", "source", "instagram");
+    const [medium, mediumCell] = field("Medium", "medium", "reel, story, ads");
+    const [camp, campCell] = field("Campaign", "campaign", "lancio_ottobre");
+    const btn = h("button", { class: "btn block", type: "submit" }, "Salva");
+    const form = h("form", {
+      onsubmit: (ev) => {
+        ev.preventDefault();
+        if (!name.value.trim()) { toast("Il nome è obbligatorio"); return; }
+        submitWith(btn, async () => {
+          await api(`/api/campaigns/${id}`, { method: "PATCH", body: {
+            name: name.value.trim(), source: source.value.trim() || null, medium: medium.value.trim() || null,
+            campaign: camp.value.trim() || null } });
+          haptic();
+          toast("Campagna aggiornata");
+          history.replaceState(null, "", `#/campaign/${id}`);
+          render();
+        });
+      },
+    }, h("div", { class: "group" }, nameCell, sourceCell, mediumCell, campCell), btn);
+    return h("div", {}, header(null, "Modifica campagna"), form,
+      h("p", { class: "group-note", style: "margin-top:12px" }, "I dati raccolti restano: cambia solo come si chiama."));
+  }
+
+  async function pageEditLink(id) {
+    id = Number(id);
+    const [{ links }, t] = await Promise.all([api("/api/links"), api("/api/campaigns")]);
+    const l = links.find((x) => x.id === id);
+    if (!l) throw new Error("Link non trovato");
+    const isMain = l.channel_role === "main";
+    const campaignSel = h("select", {},
+      isMain ? null : h("option", { value: "", selected: !l.campaign_id }, "Nessuna (link VIP)"),
+      t.campaigns.map((c) => h("option", { value: c.id, selected: c.id === l.campaign_id }, c.name)));
+    const name = h("input", { type: "text", value: l.name || "", placeholder: "Nome del link", maxlength: "32" });
+    const btn = h("button", { class: "btn block", type: "submit" }, "Salva");
+    const form = h("form", {
+      onsubmit: (ev) => {
+        ev.preventDefault();
+        submitWith(btn, async () => {
+          await api(`/api/links/${id}`, { method: "PATCH", body: {
+            name: name.value.trim() || null, campaign_id: campaignSel.value ? Number(campaignSel.value) : null } });
+          haptic();
+          toast("Link aggiornato");
+          history.length > 1 ? history.back() : go("#/links");
+        });
+      },
+    },
+      h("div", { class: "group" },
+        h("div", { class: "cell" }, h("div", { class: "grow" },
+          h("div", { class: "sub" }, `Canale: ${l.channel_name}`), h("div", { class: "mono" }, l.telegram_invite_link))),
+        h("label", { class: "form-cell" }, h("span", {}, "Nome"), name),
+        h("label", { class: "form-cell" }, h("span", {}, "Campagna"), campaignSel)),
+      h("p", { class: "group-note" }, isMain
+        ? "Spostando il link, tutti gli ingressi avuti con questo link passano alla nuova campagna."
+        : "I link del VIP di solito stanno senza campagna: la conversione va già alla campagna d'origine di ogni persona."),
+      btn);
+    return h("div", {}, header(null, "Modifica link"), form);
   }
 
   // ------------------------------------------------------------ chat
