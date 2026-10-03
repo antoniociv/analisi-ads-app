@@ -7,23 +7,52 @@
   const app = document.getElementById("app");
   const API = (window.API_BASE || "").replace(/\/$/, "");
 
+  // Tema scelto dall'utente: giorno (default) o notte. Non segue il tema di Telegram.
+  // Salvato nel CloudStorage Telegram dell'utente (vale su tutti i suoi dispositivi) + copia locale
+  // per applicarlo subito all'apertura, prima che il CloudStorage risponda.
+  const THEME_KEY = "theme";
+  const cloud = tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") ? tg.CloudStorage : null;
+  let theme = new URLSearchParams(location.search).get("theme")   // ?theme=dark per anteprime fuori da Telegram
+    || localGet(THEME_KEY) || "light";
+
+  function localGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+  function localSet(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* storage bloccato */ } }
+
   function applyTheme() {
-    const forced = new URLSearchParams(location.search).get("theme");  // ?theme=dark per anteprime fuori da Telegram
-    const dark = forced ? forced === "dark"
-      : tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = theme === "dark";
     document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#000000" : "#f2f2f7");
     if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast("6.1")) {
       const bg = dark ? "#000000" : "#f2f2f7";
       try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); } catch (_) { /* client vecchio */ }
     }
+    document.querySelectorAll("[data-theme-toggle]").forEach(updateToggle);
   }
+
+  function setTheme(t) {
+    theme = t;
+    localSet(THEME_KEY, t);
+    if (cloud) { try { cloud.setItem(THEME_KEY, t); } catch (_) { /* niente */ } }
+    applyTheme();
+  }
+
+  function updateToggle(btn) {
+    const dark = theme === "dark";
+    btn.replaceChildren(icon(dark ? "sun" : "moon", 19));
+    btn.setAttribute("aria-label", dark ? "Passa alla modalità giorno" : "Passa alla modalità notte");
+  }
+
   if (tg) {
     tg.ready();
     tg.expand();
-    tg.onEvent("themeChanged", applyTheme);
     tg.BackButton.onClick(() => history.length > 1 ? history.back() : go("#/"));
   }
   applyTheme();
+  if (cloud && !new URLSearchParams(location.search).get("theme")) {
+    cloud.getItem(THEME_KEY, (err, v) => {
+      if (!err && (v === "light" || v === "dark") && v !== theme) { theme = v; localSet(THEME_KEY, v); applyTheme(); }
+    });
+  }
 
   // ------------------------------------------------------------ helper DOM
 
@@ -61,6 +90,8 @@
     alert: [["path", { d: "M12 8v5M12 16.5h.01" }], ["circle", { cx: 12, cy: 12, r: 10 }]],
     trend: [["path", { d: "m22 7-8.5 8.5-5-5L2 17" }], ["path", { d: "M16 7h6v6" }]],
     gear: [["path", { d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
+    sun: [["circle", { cx: 12, cy: 12, r: 4 }], ["path", { d: "M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" }]],
+    moon: [["path", { d: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" }]],
     shield: [["path", { d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" }]],
   };
   function icon(name, size = 18, stroke = 2.2) {
@@ -210,6 +241,13 @@
       action ? h("div", { style: "margin-bottom:22px" }, action) : null);
   }
 
+  function themeToggle() {
+    const btn = h("button", { class: "btn tinted icon", type: "button", "data-theme-toggle": true, style: "width:40px;height:40px",
+      onclick: () => { setTheme(theme === "dark" ? "light" : "dark"); tapFeedback(); } });
+    updateToggle(btn);
+    return btn;
+  }
+
   function addButton(href, label) {
     return h("a", { class: "add-btn", href, "aria-label": label }, icon("plus", 20, 2.6));
   }
@@ -343,9 +381,11 @@
     const [ov, me] = await Promise.all([api("/api/overview"), getMe()]);
     const today = new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
     return h("div", {},
-      header(today, "Overview", me.is_owner
-        ? h("a", { class: "btn tinted icon", href: "#/settings", "aria-label": "Impostazioni", style: "width:40px;height:40px" }, icon("gear", 19))
-        : null),
+      header(today, "Overview", h("div", { class: "row", style: "gap:8px" },
+        themeToggle(),
+        me.is_owner
+          ? h("a", { class: "btn tinted icon", href: "#/settings", "aria-label": "Impostazioni", style: "width:40px;height:40px" }, icon("gear", 19))
+          : null)),
       setupNotice(ov),
       heroCard(ov),
       h("div", { class: "tiles four" },
