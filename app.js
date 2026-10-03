@@ -60,6 +60,8 @@
     close: [["path", { d: "M18 6 6 18M6 6l12 12" }]],
     alert: [["path", { d: "M12 8v5M12 16.5h.01" }], ["circle", { cx: 12, cy: 12, r: 10 }]],
     trend: [["path", { d: "m22 7-8.5 8.5-5-5L2 17" }], ["path", { d: "M16 7h6v6" }]],
+    gear: [["path", { d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
+    shield: [["path", { d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" }]],
   };
   function icon(name, size = 18, stroke = 2.2) {
     return S("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
@@ -147,6 +149,10 @@
     return data;
   }
 
+  // Chi sta usando l'app (registra anche l'ultimo accesso). Una sola chiamata per sessione.
+  let mePromise = null;
+  const getMe = () => (mePromise = mePromise || api("/api/me").catch((e) => { mePromise = null; throw e; }));
+
   // ------------------------------------------------------------ router
 
   const routes = [
@@ -157,6 +163,7 @@
     [/^#\/links$/, "links", pageLinks],
     [/^#\/links\/new(?:\?.*)?$/, "links", pageNewLink],
     [/^#\/channels$/, "channels", pageChannels],
+    [/^#\/settings$/, "overview", pageSettings],
   ];
 
   async function render() {
@@ -333,10 +340,12 @@
   // ------------------------------------------------------------ pagine
 
   async function pageOverview() {
-    const ov = await api("/api/overview");
+    const [ov, me] = await Promise.all([api("/api/overview"), getMe()]);
     const today = new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
     return h("div", {},
-      header(today, "Overview"),
+      header(today, "Overview", me.is_owner
+        ? h("a", { class: "btn tinted icon", href: "#/settings", "aria-label": "Impostazioni", style: "width:40px;height:40px" }, icon("gear", 19))
+        : null),
       setupNotice(ov),
       heroCard(ov),
       h("div", { class: "tiles four" },
@@ -680,6 +689,69 @@
         h("div", { class: "avatar round", style: `background:${["var(--blue)", "var(--purple)", "var(--pink)"][i]}` }, String(i + 1)),
         h("div", { class: "grow", style: "font-size:15px" }, s)))),
       h("p", { class: "group-note" }, "Si tracciano solo gli ingressi avvenuti dopo che il bot è diventato admin."));
+  }
+
+  async function pageSettings() {
+    const me = await getMe();
+    if (!me.is_owner) return h("div", {}, header(null, "Impostazioni"), notice("Solo il proprietario può gestire gli utenti."));
+    const { admins } = await api("/api/admins");
+
+    const rows = admins.map((a) => {
+      const name = [a.first_name, a.last_name].filter(Boolean).join(" ");
+      const title = name || (a.username ? `@${a.username}` : `Utente ${a.telegram_user_id}`);
+      return h("div", { class: "cell" },
+        h("div", { class: "avatar round", style: `background:${a.is_owner ? "linear-gradient(135deg,var(--blue),var(--purple))" : `var(--c${(a.telegram_user_id % 8) + 1})`}` },
+          a.is_owner ? icon("shield", 16) : initial(title)),
+        h("div", { class: "grow" },
+          h("div", { class: "row", style: "gap:6px" },
+            h("span", { class: "title ellipsis" }, title),
+            a.is_owner ? h("span", { class: "pill blue" }, "Proprietario") : null,
+            a.label ? h("span", { class: "pill" }, a.label) : null),
+          h("div", { class: "sub ellipsis num" },
+            a.username && title !== `@${a.username}` ? `@${a.username} · ` : "",
+            `id ${a.telegram_user_id} · `,
+            a.last_seen_at ? `ultimo accesso ${fmtDate(a.last_seen_at)}` : "mai entrato")),
+        a.is_owner ? null : h("button", { class: "btn destructive icon", "aria-label": "Rimuovi", onclick: async () => {
+          if (!(await confirmBox(`Togliere l'accesso a ${title}? Lo perde subito.`))) return;
+          try {
+            await api(`/api/admins/${a.telegram_user_id}`, { method: "DELETE" });
+            haptic();
+            toast("Accesso rimosso");
+            render();
+          } catch (e) { toast(e.message); }
+        } }, icon("close", 16, 2.6)));
+    });
+
+    const uid = h("input", { type: "text", inputmode: "numeric", pattern: "[0-9]*", placeholder: "es. 246776108", autocomplete: "off" });
+    const label = h("input", { type: "text", placeholder: "Socio, Agenzia…", maxlength: "40" });
+    const btn = h("button", { class: "btn block", type: "submit" }, icon("plus", 16, 2.6), "Aggiungi utente");
+    const form = h("form", {
+      onsubmit: (ev) => {
+        ev.preventDefault();
+        const v = uid.value.replace(/\D/g, "");
+        if (!v) { toast("Inserisci lo user_id"); uid.focus(); return; }
+        submitWith(btn, async () => {
+          await api("/api/admins", { method: "POST", body: { telegram_user_id: v, label: label.value.trim() } });
+          haptic();
+          toast("Utente aggiunto");
+          render();
+        });
+      },
+    },
+      h("div", { class: "group" },
+        h("label", { class: "form-cell" }, h("span", {}, "User ID"), uid),
+        h("label", { class: "form-cell" }, h("span", {}, "Etichetta"), label)),
+      h("p", { class: "group-note" },
+        "Lo user_id è un numero: la persona lo trova scrivendo a @userinfobot. Nome e @username compaiono qui la prima volta che apre l'app."),
+      btn);
+
+    return h("div", {},
+      header("Analisi Ads", "Impostazioni"),
+      h("h2", { style: "margin-top:4px" }, "Utenti autorizzati"),
+      h("div", { class: "group fade-in" }, rows),
+      h("p", { class: "group-note" }, "Possono vedere i dati e creare campagne e link. Solo il proprietario gestisce questa lista."),
+      h("h2", {}, "Aggiungi"),
+      form);
   }
 
   // ------------------------------------------------------------ grafico ad area (2 serie, stessa scala)
