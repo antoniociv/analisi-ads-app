@@ -223,6 +223,25 @@ a.cell:active, .cell.tap:active { background: var(--fill); }
 .tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0 6px; font-size: 10.5px; font-weight: 600; color: var(--muted); border-radius: 26px; transition: background .25s, color .25s; }
 .tabbar a.on { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
 
+/* chat */
+body.guest .tabbar { display: none; }
+body.guest main { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+.thread { display: flex; flex-direction: column; gap: 6px; }
+.bubble { max-width: 82%; padding: 9px 13px 7px; border-radius: 20px; font-size: 15px; white-space: pre-wrap; word-break: break-word; }
+.bubble.me { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 6px; }
+.bubble.them { align-self: flex-start; background: var(--fill); color: var(--text); border-bottom-left-radius: 6px; }
+.bubble time { display: block; font-size: 11px; opacity: .7; margin-top: 2px; text-align: right; }
+.composer { display: flex; gap: 8px; align-items: flex-end; margin-top: 14px; }
+.composer textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--sep); background: var(--bg); color: var(--text);
+  border-radius: 22px; padding: 10px 16px; font: inherit; line-height: 1.35; max-height: 140px; outline: none; }
+.composer textarea:focus { border-color: var(--blue); }
+.send { appearance: none; border: 0; width: 42px; height: 42px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: var(--blue); color: #fff; cursor: pointer; transition: transform .12s, opacity .15s; }
+.send:active { transform: scale(.92); }
+.send:disabled { opacity: .35; }
+.badge-dot { position: absolute; top: -3px; right: -3px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px;
+  background: var(--red); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; border: 2px solid var(--bg); }
+
 /* guida */
 .guide-step > summary { display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer; list-style: none; }
 .guide-step > summary::-webkit-details-marker { display: none; }

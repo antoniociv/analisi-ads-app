@@ -93,6 +93,8 @@
     sun: [["circle", { cx: 12, cy: 12, r: 4 }], ["path", { d: "M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" }]],
     moon: [["path", { d: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" }]],
     book: [["path", { d: "M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" }], ["path", { d: "M8 7h6M8 11h8" }]],
+    message: [["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" }]],
+    arrowUp: [["path", { d: "M12 19V5M5 12l7-7 7 7" }]],
     shield: [["path", { d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" }]],
   };
   function icon(name, size = 18, stroke = 2.2) {
@@ -197,10 +199,29 @@
     [/^#\/channels$/, "channels", pageChannels],
     [/^#\/settings$/, "overview", pageSettings],
     [/^#\/guida(?:\?.*)?$/, "guide", pageGuide],
+    [/^#\/messages$/, "overview", pageInbox],
+    [/^#\/messages\/(\d+)$/, "overview", pageThread],
   ];
 
+  // Aggiornamento periodico della chat aperta: fermato a ogni cambio pagina.
+  let pollTimer = null;
+  function poll(fn, ms) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(() => { if (document.visibilityState === "visible") fn().catch(() => {}); }, ms);
+  }
+
   async function render() {
+    clearInterval(pollTimer);
     const hash = location.hash || "#/";
+    // Chi non è autorizzato vede solo la schermata "Accesso riservato" con la chat verso il proprietario.
+    let me;
+    try { me = await getMe(); } catch (e) { app.replaceChildren(notice(e.message)); return; }
+    document.body.classList.toggle("guest", !me.is_admin);
+    if (!me.is_admin) {
+      if (tg) tg.BackButton.hide();
+      try { app.replaceChildren(await pageGuest(me), versionLine()); } catch (e) { app.replaceChildren(notice(e.message)); }
+      return;
+    }
     for (const [re, tab, page] of routes) {
       const m = hash.match(re);
       if (!m) continue;
@@ -383,11 +404,16 @@
   // ------------------------------------------------------------ pagine
 
   async function pageOverview() {
+    mePromise = null;
     const [ov, me] = await Promise.all([api("/api/overview"), getMe()]);
     const today = new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
     return h("div", {},
       header(today, "Overview", h("div", { class: "row", style: "gap:8px" },
         themeToggle(),
+        me.is_owner
+          ? h("a", { class: "btn tinted icon", href: "#/messages", "aria-label": "Messaggi", style: "width:40px;height:40px;position:relative" },
+              icon("message", 19), me.unread_messages ? h("span", { class: "badge-dot" }, me.unread_messages > 9 ? "9+" : String(me.unread_messages)) : null)
+          : null,
         me.is_owner
           ? h("a", { class: "btn tinted icon", href: "#/settings", "aria-label": "Impostazioni", style: "width:40px;height:40px" }, icon("gear", 19))
           : null)),
@@ -797,6 +823,156 @@
       h("p", { class: "group-note" }, "Possono vedere i dati e creare campagne e link. Solo il proprietario gestisce questa lista."),
       h("h2", {}, "Aggiungi"),
       form);
+  }
+
+  // ------------------------------------------------------------ chat
+
+  function bubbles(messages, mine) {
+    if (!messages.length) return [];
+    return messages.map((m) => h("div", { class: `bubble ${m.direction === mine ? "me" : "them"}` },
+      m.text, h("time", {}, fmtDate(m.created_at))));
+  }
+
+  // Campo di scrittura con invio; onSend(text) → Promise. Il campo cresce con il testo.
+  function composer(placeholder, onSend, maxLen) {
+    const ta = h("textarea", { rows: 1, placeholder, maxlength: String(maxLen) });
+    const send = h("button", { class: "send", type: "button", "aria-label": "Invia", disabled: true }, icon("arrowUp", 18, 2.6));
+    const grow = () => { ta.style.height = "auto"; ta.style.height = `${Math.min(140, ta.scrollHeight)}px`; send.disabled = !ta.value.trim(); };
+    ta.addEventListener("input", grow);
+    send.addEventListener("click", async () => {
+      const text = ta.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      try { await onSend(text); ta.value = ""; grow(); haptic(); }
+      catch (e) { haptic("error"); toast(e.message); send.disabled = false; }
+    });
+    return h("div", { class: "composer" }, ta, send);
+  }
+
+  let askedWriteAccess = false;
+  async function pageGuest(me) {
+    const u = me.user || {};
+    const thread = h("div", { class: "thread" });
+    const empty = h("p", { class: "small muted", style: "text-align:center;margin:6px 0 2px" },
+      "Nessun messaggio. Scrivi qui sotto: risponde il proprietario.");
+    const hint = h("p", { class: "group-note", style: "margin:10px 4px 0" });
+    let state = { blocked: false, can_notify: false };
+
+    async function load() {
+      const r = await api("/api/contact");
+      state = r;
+      thread.replaceChildren(...(r.messages.length ? bubbles(r.messages, "in") : [empty]));
+      hint.textContent = r.blocked ? "Non puoi più inviare messaggi."
+        : r.can_notify ? "Riceverai la risposta anche qui su Telegram, dal bot."
+        : "Riapri questa pagina per vedere la risposta.";
+      box.hidden = r.blocked;
+    }
+
+    const box = composer("Scrivi un messaggio…", async (text) => {
+      await api("/api/contact", { method: "POST", body: { text } });
+      await load();
+      // Chiede una volta il permesso al bot di scrivergli, così la risposta arriva su Telegram.
+      if (!state.can_notify && !askedWriteAccess && tg && tg.requestWriteAccess && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9")) {
+        askedWriteAccess = true;
+        tg.requestWriteAccess((granted) => {
+          if (granted) api("/api/contact/notify", { method: "POST", body: { allowed: true } }).then(load).catch(() => {});
+        });
+      }
+    }, 1000);
+
+    await load();
+    poll(load, 20000);
+
+    return h("div", {},
+      h("div", { class: "fade-in", style: "text-align:center;margin:24px 0 18px" },
+        h("div", { class: "empty", style: "padding:0" }, h("div", { class: "big", style: "background:linear-gradient(135deg,var(--blue),var(--pink))" }, icon("shield", 26))),
+        h("h1", { style: "margin:0 0 8px" }, "Accesso riservato"),
+        h("p", { style: "margin:0 8px;color:var(--text-2)" },
+          "Questa dashboard è privata. Per chiedere l'accesso o per qualsiasi domanda, scrivi al proprietario qui sotto.")),
+      h("div", { class: "group fade-in" },
+        h("div", { class: "cell" },
+          h("div", { class: "avatar round", style: "background:var(--indigo)" }, initial(u.first_name || "?")),
+          h("div", { class: "grow" },
+            h("div", { class: "title" }, "Il tuo ID Telegram"),
+            h("div", { class: "sub num" }, String(u.id || "—"))),
+          h("button", { class: "btn tinted small", type: "button", onclick: () => copy(String(u.id)) }, icon("copy", 15), "Copia"))),
+      h("p", { class: "group-note" }, "Se chiedi l'accesso, il proprietario lo vede già insieme al tuo messaggio."),
+      h("h2", {}, "Scrivi al proprietario"),
+      h("div", { class: "card fade-in" }, thread, box),
+      hint);
+  }
+
+  async function pageInbox() {
+    const me = await getMe();
+    if (!me.is_owner) return h("div", {}, header(null, "Messaggi"), notice("Riservato al proprietario."));
+    const { conversations } = await api("/api/inbox");
+    const cells = conversations.map((c) => h("a", { class: "cell", href: `#/messages/${c.telegram_user_id}` },
+      h("div", { class: "avatar round", style: `background:var(--c${(c.telegram_user_id % 8) + 1})` }, initial(c.name)),
+      h("div", { class: "grow" },
+        h("div", { class: "row", style: "gap:6px" },
+          h("span", { class: "title ellipsis", style: c.unread ? "" : "font-weight:500" }, c.name),
+          c.is_admin ? h("span", { class: "pill green" }, "autorizzato") : null,
+          c.blocked ? h("span", { class: "pill red" }, "bloccato") : null),
+        h("div", { class: "sub ellipsis", style: c.unread ? "color:var(--text-2);font-weight:600" : "" },
+          c.last_direction === "out" ? "Tu: " : "", c.last_text || "")),
+      h("div", { style: "text-align:right;flex:none" },
+        h("div", { class: "small muted" }, fmtDate(c.last_message_at, false)),
+        c.unread ? h("span", { class: "badge-dot", style: "position:static;display:inline-grid;margin-top:4px" }, String(c.unread)) : null)));
+    return h("div", {},
+      header("Solo per te", "Messaggi"),
+      cells.length ? h("div", { class: "group fade-in" }, cells)
+        : emptyState("message", "Nessun messaggio", "Qui arrivano i messaggi di chi apre la dashboard senza avere accesso."),
+      h("p", { class: "group-note", style: "margin-top:12px" },
+        "Per ricevere una notifica a ogni nuovo messaggio, premi una volta Avvia nella chat di @AnalisiAdsBot."));
+  }
+
+  async function pageThread(uid) {
+    const me = await getMe();
+    if (!me.is_owner) return h("div", {}, header(null, "Messaggi"), notice("Riservato al proprietario."));
+    const thread = h("div", { class: "thread" });
+    let data = await api(`/api/inbox/${uid}`);
+    const c = data.contact;
+
+    async function load() {
+      data = await api(`/api/inbox/${uid}`);
+      thread.replaceChildren(...bubbles(data.messages, "out"));
+    }
+    thread.replaceChildren(...bubbles(data.messages, "out"));
+
+    const actions = h("div", { class: "row wrap", style: "gap:8px;margin:0 0 14px" },
+      c.is_admin
+        ? h("span", { class: "pill green", style: "padding:8px 14px;font-size:14px" }, icon("tick", 13, 3), "Ha accesso alla dashboard")
+        : h("button", { class: "btn small", type: "button", onclick: async () => {
+            if (!(await confirmBox(`Dare a ${c.name} l'accesso alla dashboard? Vedrà tutti i dati.`))) return;
+            try { await api(`/api/inbox/${uid}/authorize`, { method: "POST", body: {} }); haptic(); toast("Accesso dato"); render(); }
+            catch (e) { toast(e.message); }
+          } }, icon("shield", 15), "Autorizza"),
+      h("button", { class: c.blocked ? "btn tinted small" : "btn destructive small", type: "button", onclick: async () => {
+        const block = !c.blocked;
+        if (block && !(await confirmBox(`Bloccare ${c.name}? Non potrà più scriverti.`))) return;
+        try { await api(`/api/inbox/${uid}/block`, { method: "POST", body: { blocked: block } }); haptic(); render(); }
+        catch (e) { toast(e.message); }
+      } }, c.blocked ? "Sblocca" : "Blocca"));
+
+    const box = composer("Rispondi…", async (text) => {
+      const r = await api(`/api/inbox/${uid}`, { method: "POST", body: { text } });
+      await load();
+      toast(r.delivered ? "Inviata anche su Telegram" : "Inviata: la vedrà riaprendo l'app");
+    }, 4000);
+
+    poll(load, 15000);
+
+    return h("div", {},
+      h("div", { class: "row fade-in", style: "margin:8px 0 14px" },
+        h("div", { class: "avatar", style: `background:var(--c${(c.telegram_user_id % 8) + 1});width:52px;height:52px;border-radius:50%;font-size:20px` }, initial(c.name)),
+        h("div", { class: "grow" },
+          h("h1", { style: "margin:0;font-size:26px" }, c.name),
+          h("div", { class: "sub num" }, c.username ? `@${c.username} · ` : "", `id ${c.telegram_user_id}`))),
+      actions,
+      h("div", { class: "card fade-in" }, thread, box),
+      h("p", { class: "group-note", style: "margin-top:10px" },
+        c.can_notify ? "La tua risposta gli arriva anche su Telegram dal bot."
+          : "Non ha permesso al bot di scrivergli: vedrà la risposta quando riapre la dashboard."));
   }
 
   // ------------------------------------------------------------ guida
