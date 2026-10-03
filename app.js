@@ -209,7 +209,7 @@
         h("div", { class: "skeleton", style: "height:240px" }), h("div", { class: "skeleton" }));
       try {
         const view = await page(...m.slice(1));
-        app.replaceChildren(view);
+        app.replaceChildren(view, versionLine());
         setTimeout(animateIn, 60);
       } catch (e) {
         app.replaceChildren(notice(e.message));
@@ -220,6 +220,9 @@
     go("#/");
   }
   window.addEventListener("hashchange", render);
+
+  // Versione pubblicata, scritta in <body data-version> da setup/pubblica-webapp.sh.
+  const versionLine = () => h("p", { class: "version" }, `Analisi Ads · ${document.body.dataset.version || "sviluppo"}`);
 
   // Anelli e barre partono da zero e si riempiono dopo il primo frame.
   function animateIn(root = app) {
