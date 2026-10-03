@@ -772,7 +772,7 @@
   async function pageSettings() {
     const me = await getMe();
     if (!me.is_owner) return h("div", {}, header(null, "Impostazioni"), notice("Solo il proprietario può gestire gli utenti."));
-    const { admins } = await api("/api/admins");
+    const [{ admins }, settings] = await Promise.all([api("/api/admins"), api("/api/settings")]);
 
     const rows = admins.map((a) => {
       const name = [a.first_name, a.last_name].filter(Boolean).join(" ");
@@ -823,9 +823,23 @@
         "Lo user_id è un numero: la persona lo trova scrivendo a @userinfobot. Nome e @username compaiono qui la prima volta che apre l'app."),
       btn);
 
+    const sw = h("input", { type: "checkbox", class: "switch", checked: settings.count_internal, "aria-label": "Conta gli account interni",
+      onchange: async (ev) => {
+        const on = ev.target.checked;
+        try { await api("/api/settings", { method: "PATCH", body: { count_internal: on } }); tapFeedback();
+              toast(on ? "Le prove interne ora contano" : "Prove interne escluse dai numeri"); }
+        catch (e) { ev.target.checked = !on; toast(e.message); }
+      } });
+
     return h("div", {},
       header("Analisi Ads", "Impostazioni"),
-      h("h2", { style: "margin-top:4px" }, "Utenti autorizzati"),
+      h("h2", { style: "margin-top:4px" }, "Statistiche"),
+      h("div", { class: "group fade-in" }, h("label", { class: "cell" },
+        h("div", { class: "grow" }, h("div", { class: "title" }, "Conta gli account interni"),
+          h("div", { class: "sub" }, "Le entrate di proprietario e utenti autorizzati (es. prove) entrano nei numeri.")),
+        sw)),
+      h("p", { class: "group-note" }, "Spegnilo quando vuoi numeri puliti per il cliente: i dati non vengono cancellati, solo nascosti."),
+      h("h2", {}, "Utenti autorizzati"),
       h("div", { class: "group fade-in" }, rows),
       h("p", { class: "group-note" }, "Possono vedere i dati e creare campagne e link. Solo il proprietario gestisce questa lista."),
       h("h2", {}, "Aggiungi"),

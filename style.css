@@ -223,6 +223,14 @@ a.cell:active, .cell.tap:active { background: var(--fill); }
 .tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0 6px; font-size: 10.5px; font-weight: 600; color: var(--muted); border-radius: 26px; transition: background .25s, color .25s; }
 .tabbar a.on { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
 
+/* interruttore stile iOS */
+.switch { appearance: none; -webkit-appearance: none; width: 51px; height: 31px; border-radius: 99px; background: var(--fill);
+  position: relative; cursor: pointer; flex: none; transition: background .2s; margin: 0; padding: 0; border: 0; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); transition: transform .2s; }
+.switch:checked { background: var(--green); }
+.switch:checked::after { transform: translateX(20px); }
+
 /* chat */
 body.guest .tabbar { display: none; }
 body.guest main { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
