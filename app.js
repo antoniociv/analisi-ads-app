@@ -92,6 +92,7 @@
     gear: [["path", { d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
     sun: [["circle", { cx: 12, cy: 12, r: 4 }], ["path", { d: "M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" }]],
     moon: [["path", { d: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" }]],
+    book: [["path", { d: "M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" }], ["path", { d: "M8 7h6M8 11h8" }]],
     shield: [["path", { d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" }]],
   };
   function icon(name, size = 18, stroke = 2.2) {
@@ -195,6 +196,7 @@
     [/^#\/links\/new(?:\?.*)?$/, "links", pageNewLink],
     [/^#\/channels$/, "channels", pageChannels],
     [/^#\/settings$/, "overview", pageSettings],
+    [/^#\/guida(?:\?.*)?$/, "guide", pageGuide],
   ];
 
   async function render() {
@@ -203,7 +205,7 @@
       const m = hash.match(re);
       if (!m) continue;
       document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
-      const isRoot = ["#/", "#/campaigns", "#/links", "#/channels", ""].includes(hash);
+      const isRoot = ["#/", "#/campaigns", "#/links", "#/channels", "#/guida", ""].includes(hash);
       if (tg) isRoot ? tg.BackButton.hide() : tg.BackButton.show();
       app.replaceChildren(h("div", { class: "skeleton", style: "height:56px;width:60%;border-radius:20px" }),
         h("div", { class: "skeleton", style: "height:240px" }), h("div", { class: "skeleton" }));
@@ -367,7 +369,7 @@
       if (!ov.has_main) msgs.push("Nessun canale impostato come Principale.");
       if (!ov.has_vip) msgs.push("Nessun canale impostato come VIP.");
     }
-    return msgs.length ? notice(msgs.join(" "), "#/channels") : null;
+    return msgs.length ? notice(`${msgs.join(" ")} Apri la guida passo passo.`, "#/guida") : null;
   }
 
   function emptyState(iconName, title, text, action) {
@@ -795,6 +797,125 @@
       h("p", { class: "group-note" }, "Possono vedere i dati e creare campagne e link. Solo il proprietario gestisce questa lista."),
       h("h2", {}, "Aggiungi"),
       form);
+  }
+
+  // ------------------------------------------------------------ guida
+
+  // Testo con **grassetto**: spezza la stringa e mette i pezzi in <b> (sempre textContent, mai HTML).
+  function rich(text) {
+    return text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? h("b", {}, part) : part));
+  }
+
+  const GUIDE = [
+    { id: "bot-principale", color: "var(--blue)", icon: "send", title: "Metti il bot nel canale principale", steps: [
+      "Apri su Telegram il tuo **canale principale** (quello dove arrivano le persone dalle campagne).",
+      "Tocca il **nome del canale** in alto, poi **Amministratori**.",
+      "Tocca **Aggiungi amministratore** e cerca **AnalisiAdsBot**.",
+      "Spegni tutti i permessi e lascia acceso solo **Invita utenti tramite link** (su alcuni telefoni si chiama **Aggiungi iscritti**).",
+      "Tocca **Salva** (o la spunta in alto).",
+    ], note: "Il bot non può scrivere, cancellare o cambiare niente nel canale: serve solo a vedere chi entra e da quale link." },
+    { id: "bot-vip", color: "var(--pink)", icon: "crown", title: "Fai lo stesso nel canale VIP", steps: [
+      "Apri il **canale VIP** e ripeti gli stessi passaggi: **Amministratori → Aggiungi amministratore → AnalisiAdsBot**.",
+      "Anche qui lascia acceso solo **Invita utenti tramite link** e salva.",
+    ] },
+    { id: "ruoli", color: "var(--purple)", icon: "users", title: "Dì alla dashboard qual è il principale e qual è il VIP", steps: [
+      "Qui nella dashboard apri **Canali** (in basso).",
+      "Trovi i due canali comparsi da soli. Se non ci sono, chiudi e riapri la dashboard dopo qualche secondo.",
+      "Sul canale principale tocca **Principale**, sul canale VIP tocca **VIP**.",
+    ] },
+    { id: "campagna", color: "var(--orange)", icon: "megaphone", title: "Crea la prima campagna", steps: [
+      "Apri **Campagne** e tocca il **+** in alto a destra.",
+      "Scrivi un **nome** che ti faccia capire da dove arrivano le persone, ad esempio **Instagram Reel 01** o **TikTok Ottobre**. Gli altri campi sono facoltativi.",
+      "Lascia scelto **Crea un link nuovo** e tocca **Crea campagna**.",
+      "Nella pagina della campagna, sotto **Invite link**, tocca **Copia**.",
+    ], note: "Ogni campagna ha il suo link. Più link diversi usi, più capisci cosa funziona: uno per la bio, uno per ogni reel, uno per ogni collaborazione." },
+    { id: "usa-link", color: "var(--teal)", icon: "link", title: "Usa il link nei tuoi contenuti", steps: [
+      "Incolla il link copiato dove vuoi: **bio**, **post**, **storia**, **descrizione di un video**, messaggio a un partner.",
+      "Chi lo apre entra direttamente nel canale: **non deve fare niente di speciale** e non vede nessun bot.",
+      "Da quel momento ogni ingresso compare nella campagna giusta.",
+    ] },
+    { id: "link-vip", color: "var(--pink)", icon: "crown", title: "Il link per entrare nel VIP", steps: [
+      "Apri **Link** e tocca il **+**.",
+      "Come campagna scegli **Nessuna**, come canale scegli il **canale VIP**, dagli un nome (ad esempio **Post VIP ottobre**) e salva.",
+      "Copia il link e pubblicalo **nel canale principale**, nel messaggio che invita a entrare nel VIP.",
+    ], note: "Quando qualcuno entra nel VIP, la dashboard ricorda da quale campagna era arrivato all'inizio: è così che vedi quale campagna porta più persone nel VIP." },
+  ];
+
+  const FAQ = [
+    ["Come leggo la pagina Overview?",
+     "L'**anello rosa** è la percentuale di persone entrate nel VIP sul totale arrivate dalle campagne. L'**anello blu** mostra quante sono ancora nel canale principale. Sotto trovi ogni campagna con la sua percentuale: più è alta, meglio funziona."],
+    ["Cos'è la retention?",
+     "Dice quante persone sono **rimaste nel canale** dopo 24 ore, 7, 30 e 90 giorni. Se una campagna porta tanta gente ma la retention è bassa, quelle persone escono presto."],
+    ["Ho già dei link che uso da tempo, posso tenerli?",
+     "Sì. Quando crei la campagna scegli **Importa un link esistente** e incollalo. Da quel momento gli ingressi con quel link vengono contati nella campagna."],
+    ["Perché non vedo gli iscritti che c'erano già?",
+     "Telegram non permette di sapere da dove sono arrivate le persone **prima** che il bot diventasse amministratore. Si conta da quando lo aggiungi in poi."],
+    ["Cosa vuol dire «Organico / senza link»?",
+     "Sono persone entrate **senza usare un link di campagna**: ad esempio cercando il canale per nome o con un link che non hai registrato."],
+    ["Il bot scrive ai miei iscritti?",
+     "**No.** Non manda messaggi a nessuno e gli iscritti non si accorgono di niente: lavora in silenzio."],
+    ["Posso far vedere la dashboard a un collaboratore?",
+     "Sì, ma lo decide il proprietario: deve aggiungerlo da **Impostazioni** (l'ingranaggio nella Overview) con il suo numero utente Telegram, che il collaboratore trova scrivendo a **@userinfobot**."],
+    ["Non vedo le ultime novità",
+     "Chiudi e riapri la dashboard. In fondo a ogni pagina c'è il numero di versione: se non cambia, chiudi del tutto Telegram e riaprilo."],
+  ];
+
+  async function pageGuide() {
+    const [ov, { channels }] = await Promise.all([api("/api/overview"), api("/api/channels")]);
+    const main = channels.find((c) => c.role === "main");
+    const vip = channels.find((c) => c.role === "vip");
+    const anyLink = ov.campaigns.some((c) => c.links.length);
+    const checks = [
+      ["Bot nel canale principale", channels.some((c) => c.bot_is_admin && c.can_invite_users), "bot-principale"],
+      ["Bot nel canale VIP", (vip && vip.bot_is_admin) || channels.filter((c) => c.bot_is_admin).length >= 2, "bot-vip"],
+      ["Principale e VIP scelti", !!(main && vip), "ruoli"],
+      ["Prima campagna con il suo link", anyLink, "campagna"],
+      ["Prima persona entrata da una campagna", ov.campaigns.some((c) => c.acquired > 0), "usa-link"],
+    ];
+    const done = checks.filter((c) => c[1]).length;
+
+    const openSection = (id) => {
+      const el = document.getElementById(`guida-${id}`);
+      if (!el) return;
+      el.open = true;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      tapFeedback();
+    };
+
+    const progress = h("div", { class: "card fade-in" },
+      h("div", { class: "row spread", style: "margin-bottom:10px" },
+        h("div", { class: "title", style: "font-size:17px" }, done === checks.length ? "Tutto pronto 🎉" : "A che punto sei"),
+        h("span", { class: `pill ${done === checks.length ? "green" : "blue"} num` }, `${done} di ${checks.length}`)),
+      h("div", { class: "minibar", style: "width:100%;height:8px;margin:0 0 6px" },
+        h("i", { "data-width": `${(100 * done) / checks.length}%`, style: "width:0;background:linear-gradient(90deg,var(--blue),var(--pink))" })),
+      checks.map(([label, ok, id]) => h("div", { class: "row", style: "padding:9px 0" },
+        h("span", { class: "check-dot", style: `background:${ok ? "var(--green)" : "var(--fill)"};color:${ok ? "#fff" : "var(--muted)"}` },
+          ok ? icon("tick", 13, 3.2) : null),
+        h("span", { class: "grow", style: ok ? "color:var(--muted)" : "font-weight:600" }, label),
+        ok ? null : h("button", { class: "btn tinted small", type: "button", onclick: () => openSection(id) }, "Come fare"))));
+
+    const sections = GUIDE.map((g, n) => h("details", { class: "guide-step fade-in", id: `guida-${g.id}` },
+      h("summary", {},
+        h("span", { class: "avatar", style: `background:${g.color}` }, icon(g.icon, 18)),
+        h("span", { class: "grow" }, h("span", { class: "sub" }, `Passo ${n + 1}`), h("span", { class: "title", style: "display:block" }, g.title)),
+        h("span", { class: "chev" }, icon("chevron", 16))),
+      h("ol", {}, g.steps.map((st) => h("li", {}, rich(st)))),
+      g.note ? h("p", { class: "guide-note" }, rich(g.note)) : null));
+
+    const faq = FAQ.map(([q, a]) => h("details", { class: "guide-step faq" },
+      h("summary", {}, h("span", { class: "grow title" }, q), h("span", { class: "chev" }, icon("chevron", 16))),
+      h("p", {}, rich(a))));
+
+    return h("div", {},
+      header("Analisi Ads", "Guida"),
+      h("p", { class: "fade-in", style: "margin:-8px 2px 18px;color:var(--text-2)" },
+        "Con questa dashboard scopri ", h("b", {}, "da quale campagna"), " arrivano le persone nel tuo canale e ",
+        h("b", {}, "quante poi entrano nel VIP"), ". Bastano pochi minuti per configurarla: segui i passi qui sotto."),
+      progress,
+      h("h2", {}, "Configurazione"),
+      h("div", { class: "group fade-in" }, sections),
+      h("h2", {}, "Domande frequenti"),
+      h("div", { class: "group fade-in" }, faq));
   }
 
   // ------------------------------------------------------------ grafico ad area (2 serie, stessa scala)
